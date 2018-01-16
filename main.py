@@ -3,6 +3,35 @@ import requests
 import geopandas as gpd
 from shapely.geometry import Polygon, MultiPolygon
 from collections import deque
+import settings
+import hashlib
+import json
+import io
+
+
+def get_from_cache(url):
+    if settings.use_cache:
+        filename = hashlib.md5(url.encode('utf-8')).hexdigest()
+        cache_file_path = '{}/{}.json'.format(settings.cache_folder, filename)
+
+        if os.path.isfile(cache_file_path):
+            response_json = json.load(io.open(cache_file_path, encoding='utf-8'))
+            return response_json
+    return None
+
+
+def save_to_cache(url, response_json):
+    if settings.use_cache:
+        if not os.path.exists(settings.cache_folder):
+            os.makedirs(settings.cache_folder)
+        filename = hashlib.md5(url.encode('utf-8')).hexdigest()
+        cache_file_path = '{}/{}.json'.format(settings.cache_folder, filename)
+        json_str = str(json.dumps(response_json))
+
+        with io.open(cache_file_path, 'w', encoding='utf-8') as cache_file:
+            cache_file.write(json_str)
+
+
 
 def save_gdf_shapefile(gdf, filename=None, folder=None):
 
@@ -18,6 +47,15 @@ def save_gdf_shapefile(gdf, filename=None, folder=None):
 
 def overpass_request(data, timeout=180):
     url = 'https://overpass-api.de/api/interpreter'
+
+    prepared_url = requests.Request('GET', url, params=data).prepare().url
+    cached_response_json = get_from_cache(prepared_url)
+
+    if cached_response_json is not None:
+        return cached_response_json
+    
+
+
     response = requests.post(url, data=data, timeout=timeout)
 
     size_kb = len(response.content) / 1000.
@@ -25,6 +63,7 @@ def overpass_request(data, timeout=180):
     response_json = None
     try:
         response_json = response.json()
+        save_to_cache(prepared_url, response_json)
     except Exception:
         assert(False)
 
@@ -48,6 +87,11 @@ def osm_city_boundary_download(city_name='深圳'):
     response_json = overpass_request(data={'data': query_str})
 
     return response_json
+
+def osm_province_boundary_download(province_name='广东'):
+    pass
+
+
 
 def create_boundary_shp(place_name):
     response_json = osm_city_boundary_download(city_name=place_name)
@@ -120,4 +164,4 @@ def create_boundary_shp(place_name):
     
 
 if __name__ == '__main__':
-    create_boundary_shp(place_name='中山')
+    create_boundary_shp(place_name='成都')
